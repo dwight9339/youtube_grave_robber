@@ -147,7 +147,7 @@
       "DJI_####",
       "Screen Recording ####",
       "RPReplay_Final####"
-    ].join("\\n");
+    ].join("\n");
 
     const SYS_TITLE_REGEX = /^(IMG(?:[-_E])?|PXL|VID|MOV|MVI|DSC|CIMG|GH0\d|GX0\d|DJI|RPReplay|Screen Recording)[\-_ \s]?[0-9A-Za-z_\- ]{3,}$/;
 
@@ -157,10 +157,10 @@
     }
 
     function loadSettings() {
-      els.maxViews.value = localStorage.getItem("bingoviews") || "2000";
-      els.yearMin.value = localStorage.getItem("bingoymin") || "2006";
-      els.yearMax.value = localStorage.getItem("bingoymax") || "2025";
-      els.templates.value = localStorage.getItem("bingotemplates") || DEFAULT_TEMPLATES;
+      els.maxViews.value = localStorage.getItem("views") || "2000";
+      els.yearMin.value = localStorage.getItem("ymin") || "2006";
+      els.yearMax.value = localStorage.getItem("ymax") || "2025";
+      els.templates.value = localStorage.getItem("templates") || DEFAULT_TEMPLATES;
 
       if (location.protocol === "file:") {
         setDiag("Warning: Opened via file://. Use a local server like `python -m http.server 5500` and open http://localhost:5500/… so API referrer restrictions work.");
@@ -170,10 +170,10 @@
     }
 
     function saveSettings() {
-      localStorage.setItem("bingoviews", els.maxViews.value.trim());
-      localStorage.setItem("bingoymin", els.yearMin.value.trim());
-      localStorage.setItem("bingoymax", els.yearMax.value.trim());
-      localStorage.setItem("bingotemplates", els.templates.value);
+      localStorage.setItem("views", els.maxViews.value.trim());
+      localStorage.setItem("ymin", els.yearMin.value.trim());
+      localStorage.setItem("ymax", els.yearMax.value.trim());
+      localStorage.setItem("templates", els.templates.value);
       toast("Saved settings.");
     }
 
@@ -187,8 +187,16 @@
     }
     function pad2(n) { return String(n).padStart(2, "0"); }
     function digits(len) { let out = ""; for (let i = 0; i < len; i++) out += randInt(0, 9); return out; }
+    function normalizeTemplates(raw) {
+      if (!raw) return "";
+      return raw
+        .replace(/\r\n/g, "\n")
+        .replace(/\r/g, "\n")
+        .replace(/\\n/g, "\n");  // turn backslash-n into real newline
+    }
     function pickTemplate() {
-      const lines = els.templates.value.split(/\\r?\\n/).map(s => s.trim()).filter(Boolean);
+      const rawTemplates = els.templates.value;
+      const lines = rawTemplates.split("\n");
       if (lines.length === 0) return "IMG_YYYYMMDD_####";
       return lines[randInt(0, lines.length - 1)];
     }
@@ -209,48 +217,44 @@
     }
     function shuffle(arr) { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; }
 
-    async function ytSearchRandomPick(query, maxViews) {
-      const searchUrl = new URL("https://no0pns7n07.execute-api.us-east-1.amazonaws.com/default/yt/search");
-      searchUrl.searchParams.set("part", "snippet");
-      searchUrl.searchParams.set("maxResults", "50");
-      searchUrl.searchParams.set("q", "\"" + query + "\"");
-      searchUrl.searchParams.set("type", "video");
-      searchUrl.searchParams.set("videoEmbeddable", "true");
-      searchUrl.searchParams.set("safeSearch", "none");
-      const orders = ["relevance", "date", "rating", "viewCount"];
-      searchUrl.searchParams.set("order", orders[randInt(0, orders.length - 1)]);
+   async function ytSearchRandomPick(query, maxViews) {
+      console.log(`Searching for: ${query} with max views: ${maxViews}`);
+      // // 1. Search for up to 10 videos
+      // const PROXY = "https://no0pns7n07.execute-api.us-east-1.amazonaws.com/default/"
+      // const searchUrl = new URL(PROXY + "/yt/search");
+      // searchUrl.searchParams.set("part", "snippet");
+      // searchUrl.searchParams.set("maxResults", "10");
+      // searchUrl.searchParams.set("q", `"${query}"`);
+      // searchUrl.searchParams.set("type", "video");
+      // searchUrl.searchParams.set("videoEmbeddable", "true");
+      // searchUrl.searchParams.set("safeSearch", "none");
 
-      const res = await fetch(searchUrl.toString());
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error("Search failed " + res.status + ": " + text);
-      }
-      const data = await res.json();
-      const items = data.items || [];
-      const ids = items.map(it => it.id && it.id.videoId).filter(Boolean);
-      if (ids.length === 0) return null;
+      // const searchData = await (await fetch(searchUrl)).json();
+      // const ids = searchData.items.map(it => it.id.videoId).filter(Boolean);
 
-      const vidsUrl = new URL("https://no0pns7n07.execute-api.us-east-1.amazonaws.com/default/yt/videos");
-      vidsUrl.searchParams.set("part", "snippet,statistics");
-      vidsUrl.searchParams.set("id", ids.join(","));
-      const vres = await fetch(vidsUrl.toString());
-      if (!vres.ok) {
-        const text = await vres.text();
-        throw new Error("Videos failed " + vres.status + ": " + text);
-      }
-      const vdata = await vres.json();
-      let vitems = vdata.items || [];
+      // // 2. Shuffle so we try in random order
+      // shuffle(ids);
 
-      vitems = vitems.filter(v => {
-        const vc = parseInt((v.statistics && v.statistics.viewCount) || "0", 10);
-        return isFinite(vc) && vc <= maxViews;
-      });
+      // // 3. Try each ID until one matches filters
+      // for (const id of ids) {
+      //   const vidsUrl = new URL(PROXY + "/yt/videos");
+      //   vidsUrl.searchParams.set("part", "snippet,statistics");
+      //   vidsUrl.searchParams.set("id", id);
 
-      const sys = vitems.filter(v => SYS_TITLE_REGEX.test((v.snippet && v.snippet.title) || ""));
-      const pool = sys.length > 0 ? sys : vitems;
-      if (pool.length === 0) return null;
-      shuffle(pool);
-      return pool[0];
+      //   const videoData = await (await fetch(vidsUrl)).json();
+      //   const v = videoData.items[0];
+      //   if (!v) continue;
+
+      //   const vc = parseInt(v.statistics?.viewCount || "0", 10);
+      //   if (vc > maxViews) continue;
+
+      //   if (!SYS_TITLE_REGEX.test(v.snippet.title)) continue;
+
+      //   return v; // Success
+      // }
+
+      // // No match found
+      // return null;
     }
 
     async function nextPick(retryBudget = 5) {
@@ -311,7 +315,6 @@
     els.save.addEventListener("click", saveSettings);
     els.next.addEventListener("click", () => nextPick());
     els.skip.addEventListener("click", () => nextPick());
-    document.addEventListener("keydown", e => { if (e.key === "Enter") { nextPick(); } });
 
     // Init
     loadSettings();
