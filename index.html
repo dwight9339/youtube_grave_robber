@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>YouTube Grave Robber (patched templates)</title>
+  <title>YouTube Grave Robber</title>
   <style>
     :root { --gap: 12px; --pad: 14px; --radius: 12px; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, Apple Color Emoji, Segoe UI Emoji; }
     body { margin: 0; background: #0b0d10; color: #e8eef7; }
@@ -18,6 +18,7 @@
       width: 100%; background: #0c1118; border: 1px solid #212a3b; color: #e8eef7;
       border-radius: 10px; padding: 10px 12px; outline: none; box-sizing: border-box;
     }
+    input[type="checkbox"] { transform: scale(1.2); }
     textarea { min-height: 140px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
     .btn {
       appearance: none; border: 0; border-radius: 10px; padding: 12px 14px;
@@ -87,7 +88,7 @@
 
     <div class="card grid">
       <div class="video-frame" id="playerWrap">
-        <iframe id="player" src="" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope, picture-in-picture; web-share" allowfullscreen></iframe>
+        <iframe id="player" src="" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
       </div>
       <div class="meta">
         <div class="meta-row"><span id="title" class="sub"></span></div>
@@ -116,6 +117,7 @@
       yearMax: document.getElementById("yearMax"),
       templates: document.getElementById("templates"),
       save: document.getElementById("save"),
+      test: document.getElementById("test"),
       next: document.getElementById("next"),
       skip: document.getElementById("skip"),
       player: document.getElementById("player"),
@@ -129,14 +131,13 @@
       diag: document.getElementById("diag")
     };
 
-    // IMPORTANT: use real newlines, not "\\n"
     const DEFAULT_TEMPLATES = [
       "IMG_YYYYMMDD_####",
       "PXL_YYYYMMDD_######",
       "VID_YYYYMMDD_####",
       "VID-YYYYMMDD-WA####",
       "IMG-YYYYMMDD-WA####",
-      "IMG E####",
+      "IMG ####",
       "MOV ####",
       "MVI_####",
       "DSC_####",
@@ -146,40 +147,33 @@
       "DJI_####",
       "Screen Recording ####",
       "RPReplay_Final####"
-    ].join("\\n").replace(/\\\\n/g, "\\n"); // ensure literal backslash-ns are collapsed to actual newlines below
+    ].join("\\n");
 
-    const SYS_TITLE_REGEX = /^(IMG(?:[-_E])?|PXL|VID|MOV|MVI|DSC|CIMG|GH0\\d|GX0\\d|DJI|RPReplay|Screen Recording)[\\-_ \\s]?[0-9A-Za-z_\\- ]{3,}$/;
+    const SYS_TITLE_REGEX = /^(IMG(?:[-_E])?|PXL|VID|MOV|MVI|DSC|CIMG|GH0\d|GX0\d|DJI|RPReplay|Screen Recording)[\-_ \s]?[0-9A-Za-z_\- ]{3,}$/;
 
     function setDiag(msg, ok = false) {
       els.diag.textContent = msg;
       els.diag.className = ok ? "ok mono" : "alert mono";
     }
 
-    function normalizeTemplates(raw) {
-      if (!raw) return "";
-      // Turn Windows CRLF into LF, and any literal "\n" sequences into a real newline
-      return raw.replace(/\\r\\n/g, "\\n").replace(/\\r/g, "\\n").replace(/\\\\n/g, "\\n");
-    }
-
     function loadSettings() {
       els.maxViews.value = localStorage.getItem("bingoviews") || "2000";
       els.yearMin.value = localStorage.getItem("bingoymin") || "2006";
       els.yearMax.value = localStorage.getItem("bingoymax") || "2025";
+      els.templates.value = localStorage.getItem("bingotemplates") || DEFAULT_TEMPLATES;
 
-      const saved = localStorage.getItem("bingotemplates");
-      const normalized = normalizeTemplates(saved && saved.length ? saved : DEFAULT_TEMPLATES);
-      els.templates.value = normalized;
-
-      setDiag("Ready.", true);
+      if (location.protocol === "file:") {
+        setDiag("Warning: Opened via file://. Use a local server like `python -m http.server 5500` and open http://localhost:5500/… so API referrer restrictions work.");
+      } else {
+        setDiag("Ready.", true);
+      }
     }
 
     function saveSettings() {
-      const normalized = normalizeTemplates(els.templates.value);
-      localStorage.setItem("bingoviews", (els.maxViews.value || "").trim());
-      localStorage.setItem("bingoymin", (els.yearMin.value || "").trim());
-      localStorage.setItem("bingoymax", (els.yearMax.value || "").trim());
-      localStorage.setItem("bingotemplates", normalized);
-      els.templates.value = normalized; // reflect normalization immediately
+      localStorage.setItem("bingoviews", els.maxViews.value.trim());
+      localStorage.setItem("bingoymin", els.yearMin.value.trim());
+      localStorage.setItem("bingoymax", els.yearMax.value.trim());
+      localStorage.setItem("bingotemplates", els.templates.value);
       toast("Saved settings.");
     }
 
@@ -188,21 +182,18 @@
       setTimeout(() => { els.status.textContent = ""; }, 2200);
     }
 
-    function randInt(min, maxInclusive) { return Math.floor(Math.random() * (maxInclusive - min + 1)) + min; }
+    function randInt(min, maxInclusive) {
+      return Math.floor(Math.random() * (maxInclusive - min + 1)) + min;
+    }
     function pad2(n) { return String(n).padStart(2, "0"); }
     function digits(len) { let out = ""; for (let i = 0; i < len; i++) out += randInt(0, 9); return out; }
-
     function pickTemplate() {
-      // Split on any newline; if somehow comma-separated, support that too
-      const lines = normalizeTemplates(els.templates.value)
-        .split(/\\n+/)
-        .map(s => s.trim())
-        .filter(Boolean);
+      const lines = els.templates.value.split(/\\r?\\n/).map(s => s.trim()).filter(Boolean);
       if (lines.length === 0) return "IMG_YYYYMMDD_####";
       return lines[randInt(0, lines.length - 1)];
     }
-
     function generateFromTemplate(tpl) {
+      const template = tpl.split("\n")
       const y0 = parseInt(els.yearMin.value, 10) || 2014;
       const y1 = parseInt(els.yearMax.value, 10) || 2025;
       const year = randInt(Math.min(y0, y1), Math.max(y0, y1));
@@ -216,7 +207,6 @@
       out = out.replaceAll("####", digits(4));
       return out;
     }
-
     function shuffle(arr) { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; }
 
     async function ytSearchRandomPick(query, maxViews) {
@@ -317,11 +307,13 @@
       toast("Try widening years or increasing Max views.");
     }
 
+    // Events
     els.save.addEventListener("click", saveSettings);
     els.next.addEventListener("click", () => nextPick());
     els.skip.addEventListener("click", () => nextPick());
     document.addEventListener("keydown", e => { if (e.key === "Enter") { nextPick(); } });
 
+    // Init
     loadSettings();
   </script>
 </body>
