@@ -50,11 +50,6 @@
 
     <div class="card grid">
       <div class="row">
-        <div>
-          <label for="apiKey">YouTube Data API Key</label>
-          <input id="apiKey" type="text" placeholder="AIzaSy... (stored locally)" />
-          <small class="muted">Click "Save Settings", then "Test API Key". If you opened this file directly (file://), use a local server like <span class="kbd">python -m http.server 5500</span> and open http://localhost:5500/…</small>
-        </div>
         <div class="row3">
           <div>
             <label for="maxViews">Max views</label>
@@ -62,7 +57,7 @@
           </div>
           <div>
             <label for="yearMin">Min year</label>
-            <input id="yearMin" type="number" min="2006" max="2030" value="2014" />
+            <input id="yearMin" type="number" min="2006" max="2030" value="2006" />
           </div>
           <div>
             <label for="yearMax">Max year</label>
@@ -85,7 +80,6 @@
 
       <div class="actions">
         <button id="save" class="btn secondary">Save Settings</button>
-        <button id="test" class="btn secondary">Test API Key</button>
         <button id="next" class="btn">Next ▶</button>
         <button id="skip" class="btn secondary">Skip ↻</button>
         <span id="status" class="sub"></span>
@@ -118,7 +112,6 @@
 
   <script>
     const els = {
-      apiKey: document.getElementById("apiKey"),
       maxViews: document.getElementById("maxViews"),
       yearMin: document.getElementById("yearMin"),
       yearMax: document.getElementById("yearMax"),
@@ -164,21 +157,19 @@
     }
 
     function loadSettings() {
-      els.apiKey.value = localStorage.getItem("bingokey") || "";
       els.maxViews.value = localStorage.getItem("bingoviews") || "2000";
-      els.yearMin.value = localStorage.getItem("bingoymin") || "2014";
+      els.yearMin.value = localStorage.getItem("bingoymin") || "2006";
       els.yearMax.value = localStorage.getItem("bingoymax") || "2025";
       els.templates.value = localStorage.getItem("bingotemplates") || DEFAULT_TEMPLATES;
 
       if (location.protocol === "file:") {
         setDiag("Warning: Opened via file://. Use a local server like `python -m http.server 5500` and open http://localhost:5500/… so API referrer restrictions work.");
       } else {
-        setDiag("Ready. Paste your API key, Save, then Test.", true);
+        setDiag("Ready.", true);
       }
     }
 
     function saveSettings() {
-      localStorage.setItem("bingokey", els.apiKey.value.trim());
       localStorage.setItem("bingoviews", els.maxViews.value.trim());
       localStorage.setItem("bingoymin", els.yearMin.value.trim());
       localStorage.setItem("bingoymax", els.yearMax.value.trim());
@@ -217,7 +208,7 @@
     }
     function shuffle(arr) { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; }
 
-    async function ytSearchRandomPick(apiKey, query, maxViews) {
+    async function ytSearchRandomPick(query, maxViews) {
       const searchUrl = new URL("https://no0pns7n07.execute-api.us-east-1.amazonaws.com/default/youtube_search/yt/search");
       searchUrl.searchParams.set("part", "snippet");
       searchUrl.searchParams.set("maxResults", "50");
@@ -227,7 +218,6 @@
       searchUrl.searchParams.set("safeSearch", "none");
       const orders = ["relevance", "date", "rating", "viewCount"];
       searchUrl.searchParams.set("order", orders[randInt(0, orders.length - 1)]);
-      searchUrl.searchParams.set("key", apiKey);
 
       const res = await fetch(searchUrl.toString());
       if (!res.ok) {
@@ -242,7 +232,6 @@
       const vidsUrl = new URL("https://no0pns7n07.execute-api.us-east-1.amazonaws.com/default/youtube_search/yt/videos");
       vidsUrl.searchParams.set("part", "snippet,statistics");
       vidsUrl.searchParams.set("id", ids.join(","));
-      vidsUrl.searchParams.set("key", apiKey);
       const vres = await fetch(vidsUrl.toString());
       if (!vres.ok) {
         const text = await vres.text();
@@ -264,8 +253,6 @@
     }
 
     async function nextPick(retryBudget = 5) {
-      const apiKey = els.apiKey.value.trim();
-      if (!apiKey) { setDiag("Missing API key. Paste it and click Save.", false); toast("Add your API key."); return; }
       const maxViews = parseInt(els.maxViews.value, 10) || 2000;
 
       els.pillQuery.textContent = "…";
@@ -285,7 +272,7 @@
         setDiag("Searching for " + query + " (attempt " + attempt + "/" + retryBudget + ")…", true);
 
         try {
-          const pick = await ytSearchRandomPick(apiKey, query, maxViews);
+          const pick = await ytSearchRandomPick(query, maxViews);
           if (pick) {
             const vidId = pick.id;
             const title = pick.snippet.title;
@@ -317,26 +304,6 @@
       }
       setDiag("Out of attempts. Widen the year range or increase Max views.", false);
       toast("Try widening years or increasing Max views.");
-    }
-
-    async function testKey() {
-      const apiKey = els.apiKey.value.trim();
-      if (!apiKey) { setDiag("Missing API key. Paste it and click Save.", false); return; }
-      setDiag("Testing key…");
-      try {
-        const url = new URL("https://www.googleapis.com/youtube/v3/search");
-        url.searchParams.set("part", "snippet");
-        url.searchParams.set("q", "\"" + test + "\"");
-        url.searchParams.set("type", "video");
-        url.searchParams.set("maxResults", "1");
-        url.searchParams.set("key", apiKey);
-        const res = await fetch(url.toString());
-        const text = await res.text();
-        if (!res.ok) throw new Error("HTTP " + res.status + " – " + text);
-        setDiag("Key OK. Response looks good.", true);
-      } catch (e) {
-        setDiag("Key test failed: " + e.message + "\\nCommon causes: invalid API key, API not enabled, referrer not whitelisted for this origin (" + location.origin + ").", false);
-      }
     }
 
     // Events
