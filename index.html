@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Bingo: Random System-Title YouTube Picker (v2)</title>
+  <title>YouTube Grave Robber</title>
   <style>
     :root { --gap: 12px; --pad: 14px; --radius: 12px; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, Apple Color Emoji, Segoe UI Emoji; }
     body { margin: 0; background: #0b0d10; color: #e8eef7; }
@@ -46,7 +46,7 @@
 </head>
 <body>
   <div class="wrap grid">
-    <h1>🎲 Bingo: Random System-Title YouTube Picker <span class="pill">v2</span></h1>
+    <h1>YouTube Grave Robber</h1>
 
     <div class="card grid">
       <div class="row">
@@ -137,8 +137,8 @@
       "VID_YYYYMMDD_####",
       "VID-YYYYMMDD-WA####",
       "IMG-YYYYMMDD-WA####",
-      "IMG_E####",
-      "MOV_####",
+      "IMG E####",
+      "MOV ####",
       "MVI_####",
       "DSC_####",
       "CIMG####",
@@ -209,7 +209,7 @@
     function shuffle(arr) { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; }
 
     async function ytSearchRandomPick(query, maxViews) {
-      const searchUrl = new URL("https://no0pns7n07.execute-api.us-east-1.amazonaws.com/default/youtube_search/yt/search");
+      const searchUrl = new URL("https://no0pns7n07.execute-api.us-east-1.amazonaws.com/default/yt/search");
       searchUrl.searchParams.set("part", "snippet");
       searchUrl.searchParams.set("maxResults", "50");
       searchUrl.searchParams.set("q", "\"" + query + "\"");
@@ -229,7 +229,7 @@
       const ids = items.map(it => it.id && it.id.videoId).filter(Boolean);
       if (ids.length === 0) return null;
 
-      const vidsUrl = new URL("https://no0pns7n07.execute-api.us-east-1.amazonaws.com/default/youtube_search/yt/videos");
+      const vidsUrl = new URL("https://no0pns7n07.execute-api.us-east-1.amazonaws.com/default/yt/videos");
       vidsUrl.searchParams.set("part", "snippet,statistics");
       vidsUrl.searchParams.set("id", ids.join(","));
       const vres = await fetch(vidsUrl.toString());
