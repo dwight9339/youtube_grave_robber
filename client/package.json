@@ -5,7 +5,7 @@
   "description": "Frontend for YouTube Grave Robber",
   "type": "module",
   "scripts": {
-    "dev": "python3 -m http.server 5500",
+    "dev": "python3 -m http.server --directory src 5500",
     "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js"
   },
   "devDependencies": {

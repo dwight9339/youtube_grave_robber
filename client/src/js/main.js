@@ -1,5 +1,8 @@
 import { searchIds, fetchVideo } from './api.js';
 import { generateFromTemplate, isSystemTitle } from './filters.js';
+import { addToPool, popFromAny, removeFromAll } from './cache-raw.js';
+import { getDetails, setDetails } from './cache-details.js';
+import { markServed, isServed, purgeExpired } from './cache-served.js';
 
 const els = {
   maxViews: document.getElementById('maxViews'),
@@ -69,11 +72,17 @@ function toast(msg) {
   setTimeout(() => { els.status.textContent = ''; }, 2200);
 }
 
-function pickTemplate() {
-  const lines = (els.templates.value || '').split('\n');
-  if (lines.length === 0) return 'IMG_YYYYMMDD_####';
-  const idx = Math.floor(Math.random() * lines.length);
-  return lines[idx];
+function getTemplates() {
+  return (els.templates.value || '')
+    .split('\n')
+    .map(s => s.trim())
+    .filter(Boolean);
+}
+
+function pickFrom(list) {
+  if (!list || list.length === 0) return 'IMG_YYYYMMDD_####';
+  const idx = Math.floor(Math.random() * list.length);
+  return list[idx];
 }
 
 function shuffle(arr) {
@@ -84,25 +93,31 @@ function shuffle(arr) {
   return arr;
 }
 
-async function ytSearchRandomPick(query, maxViews) {
-  // 1) Search
-  const ids = await searchIds(query);
-  shuffle(ids);
-  // 2) Try each ID until match
-  for (const id of ids) {
-    const v = await fetchVideo(id);
-    if (!v) continue;
-    const views = parseInt(v.statistics?.viewCount || '0', 10);
-    if (isNaN(views) || views > maxViews) continue;
-    if (!isSystemTitle(v.snippet?.title)) continue;
-    return v;
+async function tryCandidate(id, maxViews) {
+  // Served check first
+  if (isServed(id)) return null;
+  // Use details cache if present
+  let v = getDetails(id);
+  if (!v) {
+    try {
+      v = await fetchVideo(id);
+      if (v) setDetails(id, v);
+    } catch (e) {
+      return null;
+    }
   }
-  return null;
+  if (!v) return null;
+  const views = parseInt(v.statistics?.viewCount || '0', 10);
+  if (isNaN(views) || views > maxViews) return null;
+  if (!isSystemTitle(v.snippet?.title)) return null;
+  return v;
 }
 
 async function nextPick(retryBudget = 5) {
   const maxViews = parseInt(els.maxViews.value, 10) || 2000;
+  const templates = getTemplates();
 
+  // Reset UI
   els.pillQuery.textContent = '…';
   els.pillViews.textContent = '';
   els.pillChannel.textContent = '';
@@ -111,36 +126,58 @@ async function nextPick(retryBudget = 5) {
   els.player.src = '';
   els.detector.textContent = '';
 
-  let attempt = 0;
-  while (attempt < retryBudget) {
-    attempt++;
-    const tpl = pickTemplate();
+  // Housekeeping
+  purgeExpired();
+
+  let fills = 0; // number of /yt/search fills performed
+
+  // Try to consume from cache and only fill when empty
+  while (fills <= retryBudget) {
+    // 1) Try cached raw IDs across all templates
+    for (let guard = 0; guard < 200; guard++) {
+      const id = popFromAny(templates);
+      if (!id) break; // no more cached IDs
+      if (isServed(id)) { removeFromAll(id, templates); continue; }
+      const v = await tryCandidate(id, maxViews);
+      if (!v) { removeFromAll(id, templates); continue; }
+
+      // Success: consume and display
+      const vidId = v.id;
+      const title = v.snippet.title;
+      const views = parseInt((v.statistics && v.statistics.viewCount) || '0', 10);
+      const chan = v.snippet.channelTitle;
+      const url = 'https://www.youtube.com/watch?v=' + vidId;
+
+      markServed(vidId);
+      removeFromAll(vidId, templates);
+
+      els.player.src = 'https://www.youtube.com/embed/' + vidId + '?autoplay=1&rel=0';
+      els.title.textContent = title;
+      els.pillViews.textContent = new Intl.NumberFormat().format(views) + ' views';
+      els.pillChannel.textContent = 'by ' + chan;
+      els.openInYT.href = url;
+
+      const regOk = isSystemTitle(title);
+      els.detector.textContent = 'Title: ' + title + '\nMatches system-title regex: ' + (regOk ? 'Yes' : 'No') + '\nSource: cache';
+      setDiag('Found one from cache: ' + title, true);
+      toast('Found one!');
+      return;
+    }
+
+    // 2) Need to fill raw cache via one search
+    fills++;
+    const tpl = pickFrom(templates);
     const query = generateFromTemplate(tpl, els.yearMin.value, els.yearMax.value);
     els.pillQuery.textContent = query;
-    setDiag('Searching for ' + query + ' (attempt ' + attempt + '/' + retryBudget + ')…', true);
+    setDiag('Searching for ' + query + ' (attempt ' + fills + '/' + retryBudget + ')…', true);
 
     try {
-      const pick = await ytSearchRandomPick(query, maxViews);
-      if (pick) {
-        const vidId = pick.id;
-        const title = pick.snippet.title;
-        const views = parseInt((pick.statistics && pick.statistics.viewCount) || '0', 10);
-        const chan = pick.snippet.channelTitle;
-        const url = 'https://www.youtube.com/watch?v=' + vidId;
-
-        els.player.src = 'https://www.youtube.com/embed/' + vidId + '?autoplay=1&rel=0';
-        els.title.textContent = title;
-        els.pillViews.textContent = new Intl.NumberFormat().format(views) + ' views';
-        els.pillChannel.textContent = 'by ' + chan;
-        els.openInYT.href = url;
-
-        const regOk = isSystemTitle(title);
-        els.detector.textContent = 'Title: ' + title + '\nMatches system-title regex: ' + (regOk ? 'Yes' : 'No') + '\nTemplate used: ' + tpl;
-        setDiag('Found one: ' + title, true);
-        toast('Found one!');
-        return;
+      const ids = await searchIds(query);
+      if (ids.length === 0) {
+        setDiag('No results for ' + query + '. Trying another…', false);
       } else {
-        setDiag('No low-view results for ' + query + '. Trying another…', false);
+        addToPool(tpl, ids);
+        setDiag('Cached ' + ids.length + ' results for ' + tpl + '. Trying picks…', true);
       }
     } catch (err) {
       console.error(err);
@@ -148,8 +185,9 @@ async function nextPick(retryBudget = 5) {
       toast('API error; see Diagnostics.');
       return;
     }
-    await new Promise(r => setTimeout(r, 200));
+    await new Promise(r => setTimeout(r, 150));
   }
+
   setDiag('Out of attempts. Widen the year range or increase Max views.', false);
   toast('Try widening years or increasing Max views.');
 }
@@ -161,4 +199,3 @@ els.skip.addEventListener('click', () => nextPick());
 
 // Init
 loadSettings();
-

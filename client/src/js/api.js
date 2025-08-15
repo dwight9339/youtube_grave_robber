@@ -13,7 +13,7 @@ export async function searchIds(query) {
   const base = API_BASE || '';
   const url = new URL((base ? base : '') + '/yt/search', base ? undefined : window.location.origin);
   url.searchParams.set('part', 'snippet');
-  url.searchParams.set('maxResults', '50');
+  url.searchParams.set('maxResults', '5');
   url.searchParams.set('q', '"' + query + '"');
   url.searchParams.set('type', 'video');
   url.searchParams.set('videoEmbeddable', 'true');

@@ -1,23 +1,29 @@
 {
   "name": "youtube-grave-robber-backend",
   "version": "1.0.0",
-  "type": "module",
   "private": true,
+  "type": "module",
   "scripts": {
+    "dev": "node server-dev.js",
     "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --runInBand"
   },
   "dependencies": {
-    "@aws-sdk/client-dynamodb": "^3.635.0",
-    "@aws-sdk/lib-dynamodb": "^3.635.0"
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.1",
+    "express": "^4.19.2",
+    "serverless-http": "^3.2.0"
   },
   "devDependencies": {
-    "esbuild": "^0.25.9",
-    "jest": "^30.0.5"
+    "cross-env": "^7.0.3",
+    "jest": "^30.0.5",
+    "jest-environment-node": "^30.0.5",
+    "supertest": "^7.0.0"
   },
   "jest": {
     "testEnvironment": "node",
-    "testMatch": ["**/tests/**/*.[jt]s?(x)", "**/?(*.)+(spec|test).[jt]s?(x)"],
-    "transform": {},
-    "testPathIgnorePatterns": ["/node_modules/", "/dist/"]
+    "testMatch": [
+      "**/tests/**/*.[jt]s?(x)"
+    ],
+    "transform": {}
   }
 }
