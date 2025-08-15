@@ -55,6 +55,7 @@ README.md              # This file
 
    ```bash
    sam build
+   # Update env.local.json with your YouTube API key first
    sam local start-api --env-vars env.local.json
    ```
 
@@ -66,6 +67,19 @@ README.md              # This file
    ```
 
    Visit [http://localhost:5500](http://localhost:5500). When served on localhost, the frontend defaults to calling the SAM API at `http://127.0.0.1:3000`. To override, set `window.API_BASE` in the browser console (e.g., `window.API_BASE = 'https://<api-id>.execute-api.<region>.amazonaws.com'`) and refresh.
+
+   The sample `env.local.json` is included. Set:
+   - `ProxyFunction.YT_KEY` to your YouTube Data API v3 key
+   - `ProxyFunction.ALLOWED_ORIGIN` to `http://localhost:5500` (or your local host)
+   - `ProxyFunction.ENABLE_ORIGIN_CHECK` to `false` for local dev
+
+4. **Run unit tests** (optional):
+
+   ```bash
+   npm test
+   ```
+
+   Tests cover the Lambda proxy contract and the client API wrappers.
 
 ## Deployment
 

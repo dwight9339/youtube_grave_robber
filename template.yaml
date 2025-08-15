@@ -27,7 +27,7 @@ Resources:
     Type: "AWS::Serverless::Function"
     Properties:
       Runtime: "nodejs18.x"
-      Handler: "src/server/handler.mjs"
+      Handler: "src/server/index.mjs"
       Architectures: ["arm64"]
       Events:
         Search:
