@@ -10,7 +10,7 @@ describe('Lambda proxy handler', () => {
     process.env = { ...OLD_ENV, YT_KEY: 'TESTKEY', ALLOWED_ORIGIN: 'http://localhost:5500', ENABLE_ORIGIN_CHECK: 'false' };
     global.fetch = jest.fn();
     // dynamic import after stubbing fetch
-    ({ handler } = await import('../../src/server/index.mjs'));
+    ({ handler } = await import('../src/index.js'));
   });
   afterEach(() => {
     process.env = OLD_ENV;

@@ -1,119 +1,104 @@
-AWSTemplateFormatVersion: 2010-09-09
-Description: >-
-  youtube-grave-robber
+AWSTemplateFormatVersion: "2010-09-09"
 Transform:
-- AWS::Serverless-2016-10-31
+  - "AWS::Serverless-2016-10-31"
+Description: "Serverless API with catch-all routing, DynamoDB cache, and fast builds"
 
 Parameters:
   AllowedOrigin:
-    Type: String
-    Default: "https://example.cloudfront.net"  # update after first deploy if needed
+    Type: "String"
+    Default: "*"
+    Description: "CORS origin for responses (use your site origin in prod)"
   YtKeySecretArn:
-    Type: String
-    Description: "ARN of Secrets Manager secret carrying YT_KEY"
+    Type: "String"
+    Description: "ARN of the Secrets Manager secret that contains key 'YT_API_KEY'"
+
+Globals:
+  Function:
+    Runtime: "nodejs22.x"
+    Timeout: 20
+    MemorySize: 256
+    Tracing: "Active"
+  Api:
+    TracingEnabled: true
 
 Resources:
-  # --- API (you likely already have these) ---
+  # ---------- HTTP API ----------
   HttpApi:
     Type: "AWS::Serverless::HttpApi"
     Properties:
       CorsConfiguration:
         AllowOrigins:
           - !Ref AllowedOrigin
-        AllowMethods: ["GET","OPTIONS"]
-        AllowHeaders: ["Content-Type","Authorization","X-Requested-With"]
+        AllowHeaders:
+          - "Content-Type"
+          - "Authorization"
+        AllowMethods:
+          - "GET"
+          - "POST"
+          - "OPTIONS"
 
+  # ---------- DynamoDB Cache ----------
+  CacheTable:
+    Type: "AWS::Serverless::SimpleTable"
+    Properties:
+      TableName: !Sub "${AWS::StackName}-cache"
+      PrimaryKey:
+        Name: "pk"
+        Type: "S"
+      Tags:
+        App: "serverless-api"
+
+  # ---------- Lambda (route-agnostic) ----------
   ProxyFunction:
     Type: "AWS::Serverless::Function"
     Properties:
-      Runtime: "nodejs18.x"
-      Handler: "src/server/index.mjs"
-      Architectures: ["arm64"]
+      CodeUri: "src/server"               # your folder that contains index.mjs
+      Handler: "test.handler"            # file: index.mjs, export: handler
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref CacheTable
+          ALLOWED_ORIGIN: !Ref AllowedOrigin
+          ENABLE_ORIGIN_CHECK: "false"
+          # Pull YT API key at runtime via dynamic reference
+          YT_API_KEY: !Sub "{{resolve:secretsmanager:${YtKeySecretArn}:SecretString:YT_API_KEY}}"
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CacheTable
+        - Statement:
+            Effect: "Allow"
+            Action:
+              - "secretsmanager:GetSecretValue"
+            Resource: !Ref YtKeySecretArn
       Events:
-        Search:
-          Type: "HttpApi"
-          Properties:
-            ApiId: !Ref HttpApi
-            Path: "/yt/search"
-            Method: "GET"
-        Videos:
-          Type: "HttpApi"
-          Properties:
-            ApiId: !Ref HttpApi
-            Path: "/yt/videos"
-            Method: "GET"
-        OptionsAll:
+        # Single catch-all: your handler decides what to do based on path/method
+        ProxyAny:
           Type: "HttpApi"
           Properties:
             ApiId: !Ref HttpApi
             Path: "/{proxy+}"
-            Method: "OPTIONS"
-      Environment:
-        Variables:
-          ALLOWED_ORIGIN: !Ref AllowedOrigin
-          ENABLE_ORIGIN_CHECK: "true"
-          # Pull YT_KEY at runtime from Secrets Manager:
-          YT_KEY: "{{resolve:secretsmanager:${YtKeySecretArn}:SecretString:YT_KEY}}"
-      Policies:
-        - AWSSecretsManagerGetSecretValuePolicy:
-            SecretArn: !Ref YtKeySecretArn
-
-  # --- Static site: S3 + CloudFront ---
-  SiteBucket:
-    Type: "AWS::S3::Bucket"
-    Properties:
-      BucketName: !Sub "${AWS::StackName}-site"
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: true
-        BlockPublicPolicy: true
-        IgnorePublicAcls: true
-        RestrictPublicBuckets: true
-
-  SiteOAI:
-    Type: "AWS::CloudFront::CloudFrontOriginAccessIdentity"
-    Properties:
-      CloudFrontOriginAccessIdentityConfig:
-        Comment: !Sub "OAI for ${AWS::StackName} site"
-
-  SiteBucketPolicy:
-    Type: "AWS::S3::BucketPolicy"
-    Properties:
-      Bucket: !Ref SiteBucket
-      PolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Sid: "AllowCloudFrontRead"
-            Effect: "Allow"
-            Principal:
-              CanonicalUser: !GetAtt SiteOAI.S3CanonicalUserId
-            Action: "s3:GetObject"
-            Resource: !Sub "${SiteBucket.Arn}/*"
-
-  CDN:
-    Type: "AWS::CloudFront::Distribution"
-    Properties:
-      DistributionConfig:
-        Enabled: true
-        DefaultRootObject: "index.html"
-        Origins:
-          - Id: "site-origin"
-            DomainName: !GetAtt SiteBucket.RegionalDomainName
-            S3OriginConfig:
-              OriginAccessIdentity: !Sub "origin-access-identity/cloudfront/${SiteOAI}"
-        DefaultCacheBehavior:
-          TargetOriginId: "site-origin"
-          ViewerProtocolPolicy: "redirect-to-https"
-          AllowedMethods: ["GET","HEAD","OPTIONS"]
-          CachedMethods: ["GET","HEAD"]
-          Compress: true
-          ForwardedValues:
-            QueryString: false
-        PriceClass: "PriceClass_100"
+            Method: "ANY"
+        # Optional: mount root without needing /{proxy+}
+        RootAny:
+          Type: "HttpApi"
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: "/"
+            Method: "ANY"
+    Metadata:
+      BuildMethod: "esbuild"
+      BuildProperties:
+        EntryPoints:
+          - "test.js"           # your entry file
+        Minify: true
+        Target: "node22"
+        Sourcemap: false
+        External:
+          - "@aws-sdk/*"
 
 Outputs:
   ApiUrl:
+    Description: "HTTP API base URL"
     Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com"
-  SiteBucketName:
-    Value: !Ref SiteBucket
-  CloudFrontURL:
-    Value: !Sub "https://${CDN.DomainName}"
+  TableName:
+    Description: "DynamoDB cache table name"
+    Value: !Ref CacheTable

@@ -1,0 +1,20 @@
+{
+  "name": "youtube-grave-robber-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Frontend for YouTube Grave Robber",
+  "type": "module",
+  "scripts": {
+    "dev": "python3 -m http.server 5500",
+    "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js"
+  },
+  "devDependencies": {
+    "jest": "^30.0.5",
+    "jest-environment-jsdom": "^30.0.5"
+  },
+  "jest": {
+    "testEnvironment": "jsdom",
+    "testMatch": ["**/tests/**/*.[jt]s?(x)", "**/?(*.)+(spec|test).[jt]s?(x)"],
+    "transform": {}
+  }
+}
