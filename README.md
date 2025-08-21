@@ -1,6 +1,6 @@
 # YouTube Grave Robber
 
-A serverless web app that serves up **random low-view, system-titled YouTube videos** each time you click **Next**. Built with **AWS SAM** for the backend (API Gateway + Lambda + optional DynamoDB cache) and **S3 + CloudFront** for the static frontend.
+A simple web app that serves up **random low-view, system-titled YouTube videos** each time you click **Next**.
 
 ## Features
 
@@ -9,13 +9,6 @@ A serverless web app that serves up **random low-view, system-titled YouTube vid
 - **Two-layer caching** (optional server-side with DynamoDB) to share search results between users.
 - **Never repeats** a video within a session.
 - **Configurable filters**: max view count, title regex, etc.
-- **Serverless**: minimal infra cost, scales automatically.
-
-## Architecture
-
-- **Frontend**: Static HTML/JS/CSS hosted on S3 and cached via CloudFront.
-- **Backend**: Lambda function behind API Gateway acting as a proxy to YouTube Data API (injects API key server-side, handles CORS).
-- **Optional server-side cache**: DynamoDB table for sharing results and further reducing API calls.
 
 ## Repository Layout
 
