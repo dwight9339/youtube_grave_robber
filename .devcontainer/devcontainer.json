@@ -8,13 +8,14 @@
 		"ghcr.io/devcontainers/features/aws-cli:1": {},
 		"ghcr.io/audacioustux/devcontainers/aws-sam-cli:1": {},
 		"ghcr.io/devcontainers/features/docker-outside-of-docker:1.6.3": {},
-		"ghcr.io/jsburckhardt/devcontainer-features/codex:1": {}
+		"ghcr.io/jsburckhardt/devcontainer-features/codex:1": {},
+		"ghcr.io/devcontainers-extra/features/act:1": {}
 	},
 	"mounts": [
     "source=codex_config,target=/home/node/.codex,type=volume",
     "source=gh_config,target=/home/node/.config/gh,type=volume",
 		"source=aws_config,target=/home/node/.aws,type=volume"
   ],
-  "postCreateCommand": "bash -lc \"set -e; mkdir -p ~/.codex ~/.config/gh ~/.aws; sudo chown -R node:node ~/.codex ~/.config/gh ~/.aws; chmod 700 ~/.codex ~/.config/gh ~/.aws; sudo usermod -aG docker node; pnpm install\"",
+  "postCreateCommand": "bash -lc \"set -e; mkdir -p ~/.codex ~/.config/gh ~/.aws; sudo chown -R node:node ~/.codex ~/.config/gh ~/.aws; chmod 700 ~/.codex ~/.config/gh ~/.aws; sudo usermod -aG docker node; npm install\"",
   "postStartCommand": "bash -lc \"sudo chown -R node:node ~/.codex ~/.config/gh ~/.aws || true\""
 }
