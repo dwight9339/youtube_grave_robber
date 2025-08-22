@@ -18,7 +18,7 @@ A simple web app that serves up **random low-view, system-titled YouTube videos*
 
 1. Copy env template and set values:
 
-   `cp .env.example .env` then set `YT_KEY`.
+   `cp .env.example .env` then set `YT_KEYS` (JSON array, first key used).
 
 2. Install deps from the repo root (uses npm workspaces):
 
@@ -44,7 +44,7 @@ A simple web app that serves up **random low-view, system-titled YouTube videos*
 ## Configuration
 
 - **AllowedOrigin**: The domain allowed for CORS (e.g., your CloudFront URL).
-- **YT\_KEY**: YouTube Data API key (never exposed in frontend).
+- **YT\_KEYS**: JSON array of YouTube Data API keys (server uses the first key for now; rotation can be added later).
 - **CACHE\_TABLE**: DynamoDB table name for server cache.
 
 ## API Endpoints

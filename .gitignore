@@ -1,6 +1,7 @@
 node_modules
 env.local.json
 .aws-sam
+.deploy.secrets
 **/.env
 **/*.out
 .pnpm-store
