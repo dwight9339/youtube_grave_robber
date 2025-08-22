@@ -5,12 +5,9 @@
   "workspaces": ["client", "server"],
   "type": "module",
   "scripts": {
-    "dev:client": "npm --workspace client run dev",
-    "lint:client": "npm --workspace client run lint",
-    "test:server": "npm --workspace server run test",
-    "build:server": "npm --workspace server run build",
-    "deploy:server": "npm --workspace server run deploy",
-    "deploy:client": "npm --workspace client run deploy",
-    "dev": "npm run dev:client"
+    "dev": "npm run -ws --if-present dev",
+    "test": "npm run -ws test",
+    "test:server": "npm -w server run test",
+    "test:client": "npm -w client run test"
   }
 }

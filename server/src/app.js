@@ -1,6 +1,3 @@
-import dotenv from "dotenv";
-dotenv.config();
-
 import express from "express";
 import cors from "cors";
 
@@ -47,7 +44,7 @@ async function proxyToYouTube(upstreamBase, req, res) {
     res.set("Content-Type", upstream.headers.get("content-type") || "application/json");
     return res.send(text);
   } catch (e) {
-    return res.status(502).json({ error: "Upstream fetch failed", message: String(e?.message || e) });
+    return res.status(502).json({ error: "Upstream fetch failed", message: String(e?.message || e), target: upstreamBase });
   }
 }
 

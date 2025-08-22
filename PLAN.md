@@ -1,159 +1,74 @@
-# PLAN.md — YouTube Grave Robber (SAM + S3/CloudFront)
+# Fix Local Dev DX
 
-This document tells Codex CLI (and humans) how to build, run, and deploy the app. It captures the architecture, file layout, APIs, caching strategy, infra, testing, and tasks.
+There are some issues that are causing friction in local development.
 
----
+## Issues
 
-## 0) Project Goals
+- **Running tests**: Testing isn't working correctly. Both the server and client app packages have tests written but running them effectively from the project root is still not straightforward.
+- **Launching apps in dev**: We need a solution for launching the app packages in development and hot reloading them when changes occur.
+- **Environment management**: Environment variables are currently provided to the server from a `.env` file in the server package root folder. I want to centralize environment variable loading in the project root.
+- **Dependency management**: I want to set the project up to use npm workspaces for centralized management of app workspaces.
 
-* Serve a simple front end that shows a **random low-view, system-titled YouTube video** for a chosen filename template each time the user clicks "Next".
-* Keep **YouTube API quota usage** very low via a two-layer cache:
+## Remediation Plan
 
-  * **Raw ID cache**: store video IDs from `search.list` calls (no filtering at search time).
-  * **Details cache**: store `videos.list` results per ID on first use.
-* Never show the same video twice during a session: maintain a **served ledger**.
-* Host the front end on **S3 + CloudFront**; serve the API via **AWS SAM** (HTTP API + Lambda).
-* Support **local dev and tests** with SAM CLI and Jest.
+The goal is to make tests runnable from the root, support a one‑command dev workflow with hot reload for both packages, centralize environment handling, and clean up workspace hygiene. This plan is designed to be incremental and low‑risk.
 
-Notes:
+### 1) Testing from the root
 
-* The repo currently contains a **SAM template** and config, a **server** folder (Lambda), and a **client** folder (HTML app). See `samconfig.toml` for defaults like `stack_name="youtube-grave-robber"`.
-* NPM deps include AWS SDK v3 DynamoDB clients, enabling a future server-side cache if desired.
+- Add root scripts in `package.json`:
+  - `test`: `npm run -ws test`
+  - `test:server`: `npm -w server run test`
+  - `test:client`: `npm -w client run test`
+- Ensure Jest ESM usage remains consistent (both packages already use `--experimental-vm-modules`).
 
----
+### 2) Fix serverless handler alignment (tests + deploy)
 
-## 1) Repository Layout
+- Create `server/src/index.js` that wraps `app` with `serverless-http` and exports `handler`.
+- Remove or reconcile the stale `server/src/lambda.js` (wrong `.mjs` references); all code should be `.js` ESM.
+- Update `template.yaml` to reflect the real layout:
+  - `CodeUri: server`
+  - `Handler: src/index.handler`
+  - Standardize environment variable name as `YT_KEY` to match the codebase.
+  - If using Secrets Manager, project its value into `YT_KEY`.
 
-```
-/src
-  /client
-    index.html                 # browser app shell; loads /js modules
-    /js
-      api.js                   # fetch wrappers for proxy endpoints
-      cache-raw.js              # raw ID cache (localStorage)
-      cache-details.js          # details cache (localStorage)
-      cache-served.js           # served ledger with TTL/cap (localStorage)
-      filters.js                # regex, view-limit checks; template expansion
-      main.js                   # UI wiring, "Next" orchestration
-    /css
-      style.css                 # styles
+### 3) Dev launch with hot reload
 
-  /server
-    handler.mjs                 # Lambda handler (Node 18+)
-    /lib
-      routes.mjs                 # path mapping, CORS helpers
-      youtube.mjs                # server-side fetch to YouTube (inject key)
-      schema.mjs                 # shared constants; optional
+- Root `dev` script to run both apps in parallel. Two options:
+  - Minimal: `npm run -ws --if-present dev` (leverages each workspace’s `dev` script).
+  - Polished: add `concurrently` and run explicit commands for server/client.
+- Server: add `nodemon` as a dev dependency and change `server`’s `dev` to `nodemon server-dev.js`.
+- Client: replace `python -m http.server` with `vite` for an instant dev server and live reload.
 
-/tests
-  unit/...                      # Jest tests for client utils and server modules
+### 4) Centralize environment configuration
 
-template.yaml                   # SAM template (HTTP API + Lambda)
-samconfig.toml                   # SAM configs (deploy, local)
-package.json                     # deps, jest config, scripts
-buildspec.yml                    # (optional) CodeBuild config
-README.md
-PLAN.md
-```
+- Create a root `.env.example` (no secrets) and `.env` (ignored).
+- Load env only in entrypoints, not libraries:
+  - Remove `dotenv.config()` from `server/src/app.js`.
+  - In `server/server-dev.js`, load the root `.env` explicitly.
+- Remove the committed `server/.env` and rotate the leaked API key. Purge from history if possible.
 
----
+### 5) Workspace hygiene
 
-## 2) High-Level Architecture
+- Keep a single lockfile at the repo root. Remove `client/package-lock.json` and `server/package-lock.json`.
+- Always install from the root (`npm install`) to leverage workspaces and hoisting.
+- Optionally add `engines` and an `.nvmrc` to pin Node versions.
 
-* **Client (S3 + CloudFront)**: Static site. Makes GET requests to API Gateway endpoints:
+### 6) Documentation updates
 
-  * `GET /yt/search` → proxies to YouTube Search **with server-injected key**.
-  * `GET /yt/videos` → proxies `videos.list` for **one ID at a time** (by design).
-* **API (HTTP API + Lambda)**:
+- Update README “Local Development” section:
+  - `cp .env.example .env` and fill `YT_KEY`.
+  - `npm install` at repo root.
+  - `npm run dev` to start both server and client.
+  - `npm test` for the whole monorepo, or `npm run test:server` / `test:client` as needed.
+  - Note `window.API_BASE` override for pointing the client at a custom API.
 
-  * Injects secret **`YT_KEY`** on the server side.
-  * Enforces **CORS** and basic origin checks with **`ALLOWED_ORIGIN`**.
-  * Provides **proxy** to official YouTube endpoints.
-  * (Optional, later) Offers **server cache** (DynamoDB) to share raw IDs across users and reduce `search.list` frequency.
+### 7) Optional quality improvements
 
----
+- Add `eslint` + `prettier` with root scripts.
+- Add a CI workflow to run tests on PRs and scan for secrets.
 
-## 3) Front-End Runtime Logic
+## Additional Call-outs
 
-### 3.1 Template expansion
-
-* Tokens: `YYYY`, `MM`, `DD`, `####`, `######`.
-* Pick **one** random template → expand to **one** query string → wrap in quotes for exact match.
-
-### 3.2 Cache-first flow (client-side only)
-
-1. **Try details cache first** (IDs with metadata already known); skip any **served** IDs.
-2. If none match current filters, **pop raw IDs** (random order) and for each:
-
-   * Call `/yt/videos?id=<ID>` (1 unit) once per new ID; **store details** regardless of pass/fail.
-   * If it passes filters → **consume** the ID (mark served + remove from raw buckets) and **play**.
-3. If raw cache empty → **fill** with one `/yt/search` (100 units, `maxResults=50`), store **all returned IDs** for this template into the raw cache, then continue step 2.
-
-### 3.3 Served policy
-
-* Once a video is played, call `consumeVideo(id)`:
-
-  * `markServed(id)` → prevents replays for 14 days (configurable).
-  * `cacheRemoveFromAllRaw(id)` → remove from raw ID pools.
-  * Optionally keep or delete details JSON to balance speed vs storage.
-
-### 3.4 Filters (client-configurable)
-
-* Max views (default 2,000).
-* System-title regex (tunable). Default:
-
-  ```js
-  const SYS_TITLE_REGEX = /^(IMG(?:[-_E])?|PXL|VID|MOV|MVI|DSC|CIMG|GH0\\d|GX0\\d|DJI|RPReplay|Screen Recording)[\\-_ \\s]?[0-9A-Za-z_\\- ]{3,}$/;
-  ```
-
----
-
-## 4) API Contract (Browser → API Gateway → Lambda)
-
-### 4.1 `GET /yt/search`
-
-**Query params (forwarded to YouTube):**
-
-* `part="snippet"`
-* `q="\"<expanded-filename>\""`
-* `type="video"`
-* `maxResults="50"`
-* `videoEmbeddable="true"`
-* `safeSearch="none"`
-* `order="relevance|date|viewCount|rating"`
-
-**Response:** raw YouTube Search API JSON (200) or a proxy error (4xx/5xx).
-**CORS:** `Access-Control-Allow-Origin: <ALLOWED_ORIGIN>`
-
-### 4.2 `GET /yt/videos`
-
-**Query params:**
-
-* `part="snippet,statistics"`
-* `id="<single video id>"`
-
-**Response:** raw YouTube Videos API JSON.
-**CORS:** same as above.
-
-> Note: The Lambda **injects** `key=<YT_KEY>`; the browser **must not** send a key.
-
----
-
-## 5) Security, CORS, and Envs
-
-**Environment variables (Lambda):**
-
-* `YT_KEY` — YouTube Data API key (secret)
-* `ALLOWED_ORIGIN` — e.g., `"https://USERNAME.github.io"` or your CloudFront domain
-* `ENABLE_ORIGIN_CHECK` — `"true" | "false"`
-
-**CORS behavior:**
-
-* For `OPTIONS`, return `204` with headers:
-
-  ```http
-  Access-Control-Allow-Origin: <ALLOWED_ORIGIN>
-  Access-Control-Allow-Methods: GET,OPTIONS
-  Access-Control-Allow-Headers: Content-Type,Authorization,X-Requested-With
-  ```
-* For all responses (including 4xx/5xx), include `Access-Control-Allow-Origin`
+- `template.yaml` currently points to non-existent files (`CodeUri: src/server`, `Handler: test.handler`). This blocks deployment; the plan above corrects it.
+- Server code assumes global `fetch` (Node 18+), which is fine; `template.yaml` targets Node 22.
+- Tests mention `ENABLE_ORIGIN_CHECK` but `server/src/app.js` doesn’t consult it. If origin checking is desired in dev, add a conditional based on this flag.

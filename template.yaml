@@ -52,15 +52,15 @@ Resources:
   ProxyFunction:
     Type: "AWS::Serverless::Function"
     Properties:
-      CodeUri: "src/server"               # your folder that contains index.mjs
-      Handler: "test.handler"            # file: index.mjs, export: handler
+      CodeUri: "server"
+      Handler: "src/index.handler"
       Environment:
         Variables:
           TABLE_NAME: !Ref CacheTable
           ALLOWED_ORIGIN: !Ref AllowedOrigin
           ENABLE_ORIGIN_CHECK: "false"
-          # Pull YT API key at runtime via dynamic reference
-          YT_API_KEY: !Sub "{{resolve:secretsmanager:${YtKeySecretArn}:SecretString:YT_API_KEY}}"
+          # Pull YT API key at runtime via dynamic reference into YT_KEY
+          YT_KEY: !Sub "{{resolve:secretsmanager:${YtKeySecretArn}:SecretString:YT_API_KEY}}"
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref CacheTable
@@ -88,7 +88,7 @@ Resources:
       BuildMethod: "esbuild"
       BuildProperties:
         EntryPoints:
-          - "test.js"           # your entry file
+          - "src/index.js"
         Minify: true
         Target: "node22"
         Sourcemap: false

@@ -5,97 +5,41 @@ A simple web app that serves up **random low-view, system-titled YouTube videos*
 ## Features
 
 - **Random template selection** for realistic system file names.
-- **Client-side caching** of video IDs and details to minimize YouTube Data API usage.
-- **Two-layer caching** (optional server-side with DynamoDB) to share search results between users.
 - **Never repeats** a video within a session.
 - **Configurable filters**: max view count, title regex, etc.
 
-## Repository Layout
-
-```
-/src
-  /client              # Frontend (HTML, JS, CSS)
-  /server              # Lambda handler and supporting modules
-/tests                 # Unit tests
-samconfig.toml         # SAM CLI config (safe to commit)
-template.yaml          # SAM/CloudFormation template
-package.json           # Node dependencies and scripts
-PLAN.md                # Project build/deploy plan
-README.md              # This file
-```
-
 ## Prerequisites
 
-- **AWS CLI** and **SAM CLI** installed
-- **Docker** (for `sam local` and DynamoDB Local)
 - **Node.js** 18+
-- **YouTube Data API v3 key** stored in AWS Secrets Manager or SSM Parameter Store
+- **YouTube Data API v3 key**
+- **AWS CLI** for deployment
 
 ## Local Development
 
-1. **Run DynamoDB Local** (optional for caching):
+1. Copy env template and set values:
 
-   ```bash
-   docker run --name ddb-local -p 8000:8000 amazon/dynamodb-local
-   aws dynamodb create-table --endpoint-url http://localhost:8000 \
-     --table-name yg_cache \
-     --attribute-definitions AttributeName=pk,AttributeType=S \
-     --key-schema AttributeName=pk,KeyType=HASH \
-     --billing-mode PAY_PER_REQUEST
-   ```
+   `cp .env.example .env` then set `YT_KEY`.
 
-2. **Start API locally**:
+2. Install deps from the repo root (uses npm workspaces):
 
-   ```bash
-   sam build
-   # Update env.local.json with your YouTube API key first
-   sam local start-api --env-vars env.local.json
-   ```
+   `npm install`
 
-3. **Serve frontend locally**:
+3. Run both apps in dev:
 
-   ```bash
-   cd src/client
-   python -m http.server 5500
-   ```
+   `npm run dev`
 
-   Visit [http://localhost:5500](http://localhost:5500). When served on localhost, the frontend defaults to calling the SAM API at `http://127.0.0.1:3000`. To override, set `window.API_BASE` in the browser console (e.g., `window.API_BASE = 'https://<api-id>.execute-api.<region>.amazonaws.com'`) and refresh.
+   - Server: http://127.0.0.1:3000 (auto-restarts with `node --watch`)
+   - Client: http://127.0.0.1:5500 (static server)
 
-   The sample `env.local.json` is included. Set:
-   - `ProxyFunction.YT_KEY` to your YouTube Data API v3 key
-   - `ProxyFunction.ALLOWED_ORIGIN` to `http://localhost:5500` (or your local host)
-   - `ProxyFunction.ENABLE_ORIGIN_CHECK` to `false` for local dev
+4. Run unit tests:
 
-4. **Run unit tests** (optional):
-
-   ```bash
-   npm test
-   ```
+   `npm test`
 
    Tests cover the Lambda proxy contract and the client API wrappers.
 
 ## Deployment
 
-1. **Deploy backend**:
 
-   ```bash
-   sam build
-   sam deploy --guided
-   ```
-
-   Provide stack name, AWS region, S3 bucket for artifacts, and parameter overrides (e.g., `AllowedOrigin`, `YtKeySecretArn`).
-
-2. **Upload frontend to S3**:
-
-   ```bash
-   aws s3 sync src/client s3://<SiteBucketName> --delete
-   ```
-
-3. **Invalidate CloudFront cache** (if using CloudFront):
-
-   ```bash
-   aws cloudfront create-invalidation --distribution-id <ID> --paths "/*"
-   ```
 
 ## Configuration
 
