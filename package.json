@@ -5,7 +5,9 @@
   "workspaces": ["client", "server"],
   "type": "module",
   "scripts": {
-    "dev": "npm run -ws --if-present dev",
+    "dev": "sh -c 'npm -w server run dev & npm -w client run dev; wait'",
+    "dev:server": "npm -w server run dev",
+    "dev:client": "npm -w client run dev",
     "test": "npm run -ws test",
     "test:server": "npm -w server run test",
     "test:client": "npm -w client run test"

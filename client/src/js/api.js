@@ -5,7 +5,10 @@ if (typeof window !== 'undefined') {
   if (window.API_BASE) {
     API_BASE = String(window.API_BASE).replace(/\/$/, '');
   } else if (window.location && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
-    API_BASE = 'http://127.0.0.1:3000';
+    // Use the same hostname the page was loaded with to avoid localhost/127.0.0.1 mismatches
+    const host = window.location.hostname;
+    const proto = window.location.protocol === 'https:' ? 'https:' : 'http:';
+    API_BASE = `${proto}//${host}:3000`;
   }
 }
 

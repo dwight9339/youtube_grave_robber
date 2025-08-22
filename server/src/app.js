@@ -4,7 +4,11 @@ import cors from "cors";
 const app = express();
 
 // Config from env
-const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "http://localhost:5500";
+// Support comma-separated origins and a dev override to accept any origin
+const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "http://localhost:5500,http://127.0.0.1:5500";
+const ENABLE_ORIGIN_CHECK = (process.env.ENABLE_ORIGIN_CHECK || "true").toLowerCase() !== "false";
+const allowedOrigins = ALLOWED_ORIGIN.split(",").map(s => s.trim()).filter(Boolean);
+console.log("CORS config:", { ENABLE_ORIGIN_CHECK, allowedOrigins });
 const YT_KEY = process.env.YT_KEY || "";
 if (!YT_KEY) {
   // Don’t crash in Lambda cold start; we’ll return 500 at request time if needed
@@ -12,11 +16,50 @@ if (!YT_KEY) {
 }
 
 // CORS
-app.use(cors({
-  origin: ALLOWED_ORIGIN,
-  methods: ["GET", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"]
-}));
+let corsOptions;
+if (ENABLE_ORIGIN_CHECK) {
+  corsOptions = {
+    origin(origin, callback) {
+      if (!origin) return callback(null, true);
+      return callback(null, allowedOrigins.includes(origin));
+    },
+    methods: ["GET", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+  };
+} else {
+  // Reflect request origin and requested headers in dev
+  corsOptions = {
+    origin: true,
+    methods: ["GET", "OPTIONS"],
+    // undefined tells cors to reflect Access-Control-Request-Headers
+    allowedHeaders: undefined,
+    optionsSuccessStatus: 204,
+  };
+}
+app.use(cors(corsOptions));
+// Fallback: reflect origin header if CORS didn't set it (dev only)
+app.use((req, res, next) => {
+  if (!ENABLE_ORIGIN_CHECK) {
+    const origin = req.headers.origin;
+    if (origin && !res.get("Access-Control-Allow-Origin")) {
+      res.set("Access-Control-Allow-Origin", origin);
+      res.set("Vary", "Origin");
+    }
+  }
+  next();
+});
+// Ensure preflight requests are handled for any path
+app.options("*", (req, res, next) => {
+  if (!ENABLE_ORIGIN_CHECK) {
+    const origin = req.headers.origin;
+    if (origin) res.set("Access-Control-Allow-Origin", origin);
+    const reqHdr = req.headers["access-control-request-headers"];
+    if (reqHdr) res.set("Access-Control-Allow-Headers", reqHdr);
+    res.set("Access-Control-Allow-Methods", "GET,OPTIONS");
+    return res.status(204).send();
+  }
+  return cors(corsOptions)(req, res, next);
+});
 
 // Basic health
 app.get("/api/health", (_req, res) => {
