@@ -9,10 +9,29 @@ const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "http://localhost:5500,http
 const ENABLE_ORIGIN_CHECK = (process.env.ENABLE_ORIGIN_CHECK || "true").toLowerCase() !== "false";
 const allowedOrigins = ALLOWED_ORIGIN.split(",").map(s => s.trim()).filter(Boolean);
 console.log("CORS config:", { ENABLE_ORIGIN_CHECK, allowedOrigins });
-const YT_KEY = process.env.YT_KEY || "";
-if (!YT_KEY) {
+// YouTube API key(s)
+// Primary shape going forward: `YT_KEYS` is a JSON array (e.g. '["k1","k2"]')
+// Backward-compat: if absent, fall back to scalar `YT_KEY`
+function parseKeys(input) {
+  if (!input) return [];
+  try {
+    const v = JSON.parse(input);
+    if (Array.isArray(v)) return v.map(String).filter(Boolean);
+  } catch (_) {
+    // Not JSON — accept comma-separated list
+    return String(input)
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+const ENV_YT_KEYS = parseKeys(process.env.YT_KEYS);
+const CURRENT_YT_KEY = ENV_YT_KEYS[0] || process.env.YT_KEY || "";
+if (!CURRENT_YT_KEY) {
   // Don’t crash in Lambda cold start; we’ll return 500 at request time if needed
-  console.warn("Warning: YT_KEY is not set");
+  console.warn("Warning: YT_KEYS/YT_KEY not set");
 }
 
 // CORS
@@ -68,8 +87,8 @@ app.get("/api/health", (_req, res) => {
 
 // Shared proxy util
 async function proxyToYouTube(upstreamBase, req, res) {
-  if (!YT_KEY) {
-    return res.status(500).json({ error: "Server not configured: missing YT_KEY" });
+  if (!CURRENT_YT_KEY) {
+    return res.status(500).json({ error: "Server not configured: missing YT_KEYS/YT_KEY" });
   }
   const url = new URL(upstreamBase);
   // Forward incoming query params
@@ -77,7 +96,7 @@ async function proxyToYouTube(upstreamBase, req, res) {
     if (typeof v === "string") url.searchParams.set(k, v);
   }
   // Inject key
-  url.searchParams.set("key", YT_KEY);
+  url.searchParams.set("key", CURRENT_YT_KEY);
 
   try {
     const upstream = await fetch(url.toString(), { method: "GET" });

@@ -1,7 +1,7 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Transform:
   - "AWS::Serverless-2016-10-31"
-Description: "Serverless API with catch-all routing, DynamoDB cache, and fast builds"
+Description: "Serverless API and static frontend (S3 + CloudFront)"
 
 Parameters:
   AllowedOrigin:
@@ -10,7 +10,19 @@ Parameters:
     Description: "CORS origin for responses (use your site origin in prod)"
   YtKeySecretArn:
     Type: "String"
-    Description: "ARN of the Secrets Manager secret that contains key 'YT_API_KEY'"
+    Description: "ARN of the Secrets Manager secret that contains key 'YT_API_KEYS' (JSON array)"
+  FrontendBucketName:
+    Type: "String"
+    Default: ""
+    Description: "Optional explicit S3 bucket name for the frontend (leave blank to auto-generate)"
+  CloudFrontPriceClass:
+    Type: "String"
+    Default: "PriceClass_100"
+    AllowedValues: ["PriceClass_100", "PriceClass_200", "PriceClass_All"]
+    Description: "CloudFront price class for distribution"
+
+Conditions:
+  HasFrontendBucketName: !Not [ !Equals [ !Ref FrontendBucketName, "" ] ]
 
 Globals:
   Function:
@@ -37,17 +49,6 @@ Resources:
           - "POST"
           - "OPTIONS"
 
-  # ---------- DynamoDB Cache ----------
-  CacheTable:
-    Type: "AWS::Serverless::SimpleTable"
-    Properties:
-      TableName: !Sub "${AWS::StackName}-cache"
-      PrimaryKey:
-        Name: "pk"
-        Type: "S"
-      Tags:
-        App: "serverless-api"
-
   # ---------- Lambda (route-agnostic) ----------
   ProxyFunction:
     Type: "AWS::Serverless::Function"
@@ -56,14 +57,11 @@ Resources:
       Handler: "src/index.handler"
       Environment:
         Variables:
-          TABLE_NAME: !Ref CacheTable
           ALLOWED_ORIGIN: !Ref AllowedOrigin
           ENABLE_ORIGIN_CHECK: "false"
-          # Pull YT API key at runtime via dynamic reference into YT_KEY
-          YT_KEY: !Sub "{{resolve:secretsmanager:${YtKeySecretArn}:SecretString:YT_API_KEY}}"
+          # Pull YT API keys (JSON array) at runtime via dynamic reference into YT_KEYS
+          YT_KEYS: !Sub "{{resolve:secretsmanager:${YtKeySecretArn}:SecretString:YT_API_KEYS}}"
       Policies:
-        - DynamoDBCrudPolicy:
-            TableName: !Ref CacheTable
         - Statement:
             Effect: "Allow"
             Action:
@@ -95,10 +93,99 @@ Resources:
         External:
           - "@aws-sdk/*"
 
+  # ---------- Frontend: S3 + CloudFront ----------
+  FrontendBucket:
+    Type: "AWS::S3::Bucket"
+    Properties:
+      BucketName: !If [ HasFrontendBucketName, !Ref FrontendBucketName, !Ref "AWS::NoValue" ]
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  FrontendBucketPolicy:
+    Type: "AWS::S3::BucketPolicy"
+    Properties:
+      Bucket: !Ref FrontendBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: "AllowCloudFrontOAIRead"
+            Effect: "Allow"
+            Action: ["s3:GetObject"]
+            Resource: !Sub "${FrontendBucket.Arn}/*"
+            Principal:
+              CanonicalUser: !GetAtt CloudFrontOAI.S3CanonicalUserId
+
+  CloudFrontOAI:
+    Type: "AWS::CloudFront::CloudFrontOriginAccessIdentity"
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: !Sub "OAI for ${AWS::StackName} frontend"
+
+
+  CloudFrontDistribution:
+    Type: "AWS::CloudFront::Distribution"
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub "${AWS::StackName} static frontend"
+        DefaultRootObject: "index.html"
+        PriceClass: !Ref CloudFrontPriceClass
+        HttpVersion: http2
+        Origins:
+          - Id: "S3Origin"
+            DomainName: !GetAtt FrontendBucket.RegionalDomainName
+            S3OriginConfig:
+              OriginAccessIdentity: !Sub "origin-access-identity/cloudfront/${CloudFrontOAI}"
+          - Id: "HttpApiOrigin"
+            DomainName: !Sub "${HttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+        DefaultCacheBehavior:
+          TargetOriginId: "S3Origin"
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [ GET, HEAD, OPTIONS ]
+          CachedMethods: [ GET, HEAD, OPTIONS ]
+          Compress: true
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6  # CachingOptimized managed policy
+        CacheBehaviors:
+          - PathPattern: "/yt/*"
+            TargetOriginId: "HttpApiOrigin"
+            ViewerProtocolPolicy: https-only
+            AllowedMethods: [ GET, HEAD, OPTIONS ]
+            CachedMethods: [ GET, HEAD, OPTIONS ]
+            Compress: true
+            # AWS managed: CachingDisabled (from your account)
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            # AWS managed: AllViewerExceptHostHeader (from your account)
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+          - PathPattern: "/api/*"
+            TargetOriginId: "HttpApiOrigin"
+            ViewerProtocolPolicy: https-only
+            AllowedMethods: [ GET, HEAD, OPTIONS ]
+            CachedMethods: [ GET, HEAD, OPTIONS ]
+            Compress: true
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+        CustomErrorResponses:
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: "/index.html"
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: "/index.html"
+
 Outputs:
   ApiUrl:
     Description: "HTTP API base URL"
     Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com"
-  TableName:
-    Description: "DynamoDB cache table name"
-    Value: !Ref CacheTable
+  FrontendBucketName:
+    Description: "S3 bucket for static frontend"
+    Value: !Ref FrontendBucket
+  CloudFrontURL:
+    Description: "CloudFront domain for the static frontend"
+    Value: !Sub "https://${CloudFrontDistribution.DomainName}"

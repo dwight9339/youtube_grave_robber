@@ -10,6 +10,7 @@
     "dev:client": "npm -w client run dev",
     "test": "npm run -ws test",
     "test:server": "npm -w server run test",
-    "test:client": "npm -w client run test"
+    "test:client": "npm -w client run test",
+    "deploy": "bash scripts/deploy.sh"
   }
 }
