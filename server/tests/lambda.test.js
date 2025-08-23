@@ -7,7 +7,16 @@ describe('Lambda proxy handler', () => {
   const OLD_ENV = process.env;
   beforeEach(async () => {
     jest.resetModules();
-    process.env = { ...OLD_ENV, YT_KEY: 'TESTKEY', ALLOWED_ORIGIN: 'http://localhost:5500', ENABLE_ORIGIN_CHECK: 'false' };
+    // Start from a clean env for keys to avoid accidental picks from .env/CI
+    const baseEnv = { ...OLD_ENV };
+    delete baseEnv.YT_KEYS;
+    delete baseEnv.YT_KEY;
+    process.env = {
+      ...baseEnv,
+      YT_KEY: 'TESTKEY',
+      ALLOWED_ORIGIN: 'http://localhost:5500',
+      ENABLE_ORIGIN_CHECK: 'false',
+    };
     global.fetch = jest.fn();
     // dynamic import after stubbing fetch
     ({ handler } = await import('../src/index.js'));
@@ -70,4 +79,3 @@ describe('Lambda proxy handler', () => {
     expect(parsed.target).toContain('youtube');
   });
 });
-
